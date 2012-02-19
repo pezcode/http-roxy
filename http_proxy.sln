@@ -1,0 +1,38 @@
+﻿
+Microsoft Visual Studio Solution File, Format Version 11.00
+# Visual Studio 2010
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "http_proxy", "http_proxy.vcxproj", "{62865CCC-E91E-44C8-897C-9826012168BC}"
+	ProjectSection(ProjectDependencies) = postProject
+		{0C0C173B-B7E3-4C86-AC6D-427C66A88ACB} = {0C0C173B-B7E3-4C86-AC6D-427C66A88ACB}
+	EndProjectSection
+EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "httpxx", "httpxx\project\httpxx.vcxproj", "{0C0C173B-B7E3-4C86-AC6D-427C66A88ACB}"
+	ProjectSection(ProjectDependencies) = postProject
+		{723D151E-373E-4BB2-B735-2BB5C53EC4C3} = {723D151E-373E-4BB2-B735-2BB5C53EC4C3}
+	EndProjectSection
+EndProject
+Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "http-parser", "httpxx\libs\http-parser\project\http-parser.vcxproj", "{723D151E-373E-4BB2-B735-2BB5C53EC4C3}"
+EndProject
+Global
+	GlobalSection(SolutionConfigurationPlatforms) = preSolution
+		Debug|Win32 = Debug|Win32
+		Release|Win32 = Release|Win32
+	EndGlobalSection
+	GlobalSection(ProjectConfigurationPlatforms) = postSolution
+		{62865CCC-E91E-44C8-897C-9826012168BC}.Debug|Win32.ActiveCfg = Debug|Win32
+		{62865CCC-E91E-44C8-897C-9826012168BC}.Debug|Win32.Build.0 = Debug|Win32
+		{62865CCC-E91E-44C8-897C-9826012168BC}.Release|Win32.ActiveCfg = Release|Win32
+		{62865CCC-E91E-44C8-897C-9826012168BC}.Release|Win32.Build.0 = Release|Win32
+		{0C0C173B-B7E3-4C86-AC6D-427C66A88ACB}.Debug|Win32.ActiveCfg = Debug|Win32
+		{0C0C173B-B7E3-4C86-AC6D-427C66A88ACB}.Debug|Win32.Build.0 = Debug|Win32
+		{0C0C173B-B7E3-4C86-AC6D-427C66A88ACB}.Release|Win32.ActiveCfg = Release|Win32
+		{0C0C173B-B7E3-4C86-AC6D-427C66A88ACB}.Release|Win32.Build.0 = Release|Win32
+		{723D151E-373E-4BB2-B735-2BB5C53EC4C3}.Debug|Win32.ActiveCfg = Debug|Win32
+		{723D151E-373E-4BB2-B735-2BB5C53EC4C3}.Debug|Win32.Build.0 = Debug|Win32
+		{723D151E-373E-4BB2-B735-2BB5C53EC4C3}.Release|Win32.ActiveCfg = Release|Win32
+		{723D151E-373E-4BB2-B735-2BB5C53EC4C3}.Release|Win32.Build.0 = Release|Win32
+	EndGlobalSection
+	GlobalSection(SolutionProperties) = preSolution
+		HideSolutionNode = FALSE
+	EndGlobalSection
+EndGlobal
