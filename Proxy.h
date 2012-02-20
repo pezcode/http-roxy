@@ -11,7 +11,7 @@ public:
 	Proxy(SocketAddress::port_t port);
 
 	// our server listening for connection attempts
-	bool listen();
+	bool listen(unsigned int max_incoming = 5);
 	void interrupt();
 
 private:
@@ -29,4 +29,5 @@ private:
 
 	void enqueue_incoming(const Socket& socket);
 	Socket request_incoming();
+	void close_unhandled_incoming();
 };

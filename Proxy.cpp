@@ -65,6 +65,18 @@ Socket Proxy::request_incoming()
 	return incoming;
 }
 
+void Proxy::close_unhandled_incoming()
+{
+	boost::unique_lock<boost::mutex> lock(this->incoming_guard);
+
+	while(!this->incoming_connections.empty())
+	{
+		Socket socket = this->incoming_connections.front();
+		this->incoming_connections.pop();
+		socket.close();
+	}
+}
+
 bool Proxy::thread_handle_request(int tid)
 {
 	while(true)
@@ -229,7 +241,7 @@ Proxy::Proxy(SocketAddress::port_t port)
 	this->stop_listening = false;
 }
 
-bool Proxy::listen()
+bool Proxy::listen(unsigned int max_incoming)
 {
 	// Create server socket
 	Socket s_server(Socket::INET, Socket::STREAM);
@@ -269,7 +281,7 @@ bool Proxy::listen()
 	}
 
 	// Listen on port
-	if(!s_server.listen(5))
+	if(!s_server.listen(max_incoming))
 	{
 		Message::error() << "listen failed" << '\n';
 		s_server.close();
@@ -307,8 +319,10 @@ bool Proxy::listen()
 		}
 	}
 
-	threads.interrupt_all(); // interrupt threads at queueGuard.wait()
+	threads.interrupt_all(); // interrupt threads at request_incoming()
 	threads.join_all();      // wait...
+
+	this->close_unhandled_incoming();
 
 	s_server.close();
 	return true;
