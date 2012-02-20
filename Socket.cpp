@@ -74,6 +74,27 @@ size_t Socket::send(const char* buf, size_t size)
 	return total;
 }
 
+bool Socket::select_read(long seconds, long microseconds) const
+{
+	fd_set wait;
+	FD_ZERO(&wait);
+	FD_SET(this->socket, &wait);
+
+	const timeval* timeout = NULL; // infinite
+	timeval s_timeout;
+
+	if(seconds >= 0)
+	{
+		s_timeout.tv_sec = seconds;
+		s_timeout.tv_usec = microseconds;
+		timeout = &s_timeout;
+	}
+
+	int ret = ::select(this->socket + 1, &wait, NULL, NULL, timeout);
+
+	return ret == 1; // 0 = timeout, < 0 = error, > 0 = amount ready
+}
+
 bool Socket::shutdown(bool receive, bool send)
 {
 	assert(receive || send);

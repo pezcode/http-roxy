@@ -93,6 +93,9 @@ public:
 	int recv(char* buf, size_t max_size, bool force = false);
 	size_t send(const char* buf, size_t size);
 
+	bool select_read(long seconds, long microseconds = 0) const;
+	bool select_write(long seconds, long microseconds = 0) const;
+
 	bool shutdown(bool read = true, bool write = true);
 	bool close();
 
