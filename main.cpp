@@ -22,7 +22,7 @@ int main(int argc, char* argv[])
 
 	Proxy proxy(PROXY_PORT);
 
-	if(!proxy.run())
+	if(!proxy.listen())
 	{
 		Socket::unload();
 		return EXIT_FAILURE;

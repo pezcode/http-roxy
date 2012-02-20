@@ -2,46 +2,22 @@
 
 #include <iostream>
 #include <string>
-#include <queue>
-#include <cstring>
 #include <cassert>
 
 #include "Socket.h"
 #include "Message.h"
 
-#include <boost/thread/mutex.hpp>
-#include <boost/thread/locks.hpp>
-#include "semaphore.hpp"
+#include "http.h"
 
-#include <Request.hpp>
-
-using std::string;
-using std::queue;
-
-const size_t MAX_THREADS = 4;
-
-queue<Socket> socketQueue;
-boost::mutex queueGuard;
-semaphore queueIndicator;
-bool ctrlc_pressed = false;
-
-// HTTP stuff
 bool receiveHeader(Socket input, string& header, string& rest);
-size_t bodySizeFromHeader(const string& header);
-bool hostFromHeader(const string& request, string& host, string& port);
-
-bool isConnectionAlive(const string& header);
 bool forwardRequest(const string& url, SocketAddress::port_t, const string& request, Socket output);
 
-// the threads that maintain and tunnel existing connections
-bool threadHandleRequest(int tid);
-
-bool receiveHeader(Socket input, string& header, string& rest)
+bool receiveHeader(Socket input, std::string& header, std::string& rest)
 {
-const string TERMINATOR = "\r\n\r\n";
+const std::string TERMINATOR = "\r\n\r\n";
 const size_t BUFSIZE = 2048;
 char buf[BUFSIZE];
-string data = "";
+std::string data = "";
 bool found = false;
 
 	while(!found)
@@ -51,116 +27,58 @@ bool found = false;
 		{
 			return false;
 		}
-		data += string(buf, n_read);
+		data += std::string(buf, n_read);
 		size_t len;
-		if((len = data.find(TERMINATOR)) != string::npos)
+		if((len = data.find(TERMINATOR)) != std::string::npos)
 		{
 			header = data.substr(0, len + TERMINATOR.length());
-			rest = data.substr(len + TERMINATOR.length(), string::npos);
+			rest = data.substr(len + TERMINATOR.length(), std::string::npos);
 			found = true;
 		}
 	}
 	return true;
 }
 
-size_t bodySizeFromHeader(const string& header)
+void Proxy::enqueue_incoming(const Socket& socket)
 {
-const char CONTENT_LENGTH[] = "Content-Length:";
+	assert(socket.valid());
 
-	const char* buf = header.c_str();
-	const char* found = strstr(buf, CONTENT_LENGTH);
-	if((found == buf) || ((found >= buf+2) && !strncmp(found-2, "\r\n", 2)))
-	{
-		found += sizeof(CONTENT_LENGTH)-1;
-		while(isspace(*found))
-			found++;
-
-		return atoi(found);
-	}
-	return 0;
+	boost::unique_lock<boost::mutex> lock(this->incoming_guard);
+	this->incoming_connections.push(socket);
+	this->incoming_indicator.signal();
 }
 
-bool hostFromHeader(const string& header, string& host, string& port)
+Socket Proxy::request_incoming()
 {
-const char HOST[] = "Host:";
+	// wait for a semaphore counter > 0 and automatically decrease the counter
+	this->incoming_indicator.wait();
 
-	host = "";
-	port = "";
+	boost::unique_lock<boost::mutex> lock(this->incoming_guard);
 
-	const char* buf = header.c_str();
-	const char* request = strstr(buf, HOST);
-	if((request == buf) || ((request >= buf+2) && !strncmp(request-2, "\r\n", 2)))
-	{
-		request += sizeof(HOST)-1;
+	assert(!this->incoming_connections.empty());
 
-		while(isspace(*request))
-			request++;
+	Socket incoming = this->incoming_connections.front();
+	this->incoming_connections.pop();
 
-		while(*request && !isspace(*request)) //find host address
-		{
-			if(*request == ':') //find port number
-			{
-				request++;
-				while(isdigit(*request))
-				{
-					port += *request;
-					request++;
-				}
-				break;
-			}
-			host += *request;
-			request++;
-		}
-	}
+	assert(incoming.valid());
 
-	if(!host.empty() && port.empty()) {
-		port = "80";
-	}
-
-	return !host.empty();
+	return incoming;
 }
 
-bool isConnectionAlive(const string& header)
-{
-const char CONNECTION[] = "Connection:";
-const char CLOSE[] = "Close";
-
-	const char* buf = header.c_str();
-	const char* found = strstr(buf, CONNECTION);
-	if((found == buf) || ((found >= buf+2) && !strncmp(found-2, "\r\n", 2)))
-	{
-		found += sizeof(CONNECTION)-1;
-		while(isspace(*found))
-			found++;
-		return 0 != strncmp(found, CLOSE, sizeof(CLOSE)-1);
-	}
-	return true;
-}
-
-bool Proxy::thread_HandleRequest(int tid)
+bool Proxy::thread_handle_request(int tid)
 {
 	while(true)
 	{
-		// wait for a semaphore counter > 0 and automatically decrease the counter
+		Socket s_client;
+
 		try
 		{
-			queueIndicator.wait();
+			s_client = this->request_incoming();
 		}
 		catch(boost::thread_interrupted)
 		{
 			break;
 		}
-
-		boost::unique_lock<boost::mutex> lock(queueGuard);
-
-		assert(!socketQueue.empty());
-
-		Socket s_client = socketQueue.front();
-		socketQueue.pop();
-
-		lock.unlock();
-
-		assert(s_client.valid());
 
 		string header, rest;
 		if(receiveHeader(s_client, header, rest))
@@ -259,25 +177,7 @@ bool forwardRequest(const string& url, SocketAddress::port_t port, const string&
 
 	bool keepAlive = isConnectionAlive(header);
 
-	string mode;
-	timeval s_timeout;
-	const timeval* timeout;
-	fd_set wait;
-	FD_ZERO(&wait);
-	FD_SET(s_request.get(), &wait);
-
-	if(keepAlive)
-	{
-		mode = "keep-alive";
-		s_timeout.tv_sec = 3; // 3 seconds
-		s_timeout.tv_usec = 0;
-		timeout = &s_timeout;
-	}
-	else
-	{
-		mode = "closed";
-		timeout = NULL; // infinite
-	}
+	string mode = keepAlive ? "keep-alive" : "closed";
 
 	Message::info() << "[i] " << "receiving (mode: " << mode << ")" << '\n';
 
@@ -297,17 +197,8 @@ bool forwardRequest(const string& url, SocketAddress::port_t port, const string&
 		}
 
 		// wait for more data to appear
-		fd_set temp = wait;
-		int ret = select(s_request.get()+1/*WTF*/, &temp, NULL, NULL, timeout);
-		if(ret == SOCKET_ERROR)
+		if(s_request.select_read(keepAlive ? -1 : 3)) // ready to recv
 		{
-			Message::error() << "select failed" << '\n';
-			break;
-		}
-		else if(ret == 1) // ready to recv
-		{
-			assert(FD_ISSET(s_request, &temp));
-
 			n_read = s_request.recv(recvbuf, sizeof(recvbuf));
 			if(n_read == SOCKET_ERROR)			
 			{
@@ -320,12 +211,14 @@ bool forwardRequest(const string& url, SocketAddress::port_t port, const string&
 			Message::warning() << "connection timed out" << '\n';
 			break;
 		}
+
 		bufstr = string(recvbuf, n_read);
 		total += n_read;
 	}
 	while(/*total < to_read && */n_read >= 1);
 
 	Message::info() << "connection closed" << '\n';
+
 	s_request.close();
 	return true;
 }
@@ -333,9 +226,10 @@ bool forwardRequest(const string& url, SocketAddress::port_t port, const string&
 Proxy::Proxy(SocketAddress::port_t port)
 {
 	this->port = port;
+	this->stop_listening = false;
 }
 
-bool Proxy::run()
+bool Proxy::listen()
 {
 	// Create server socket
 	Socket s_server(Socket::INET, Socket::STREAM);
@@ -394,28 +288,22 @@ bool Proxy::run()
 		}
 	}
 
-	//test
-	http::Request request;
-	request.clear();
-
 	std::cout << "Listening at " << hostIP << ":" << this->port << '\n';
 	std::cout << "CTRL+C to exit" << '\n' << '\n';
 
 	boost::thread_group threads;
-	for(int i = 0; i < MAX_THREADS; i++)
+	for(int i = 0; i < THREADS; i++)
 	{
-		threads.create_thread(boost::bind(&Proxy::thread_HandleRequest, this, i+1));
+		threads.create_thread(boost::bind(&Proxy::thread_handle_request, this, i+1));
 	}
 
-	while(!ctrlc_pressed)
+	while(!this->stop_listening)
 	{
 		// wait for incoming connections and pass them to the worker threads
 		Socket s_connection = s_server.accept();
 		if(s_connection.valid())
 		{
-			boost::unique_lock<boost::mutex> lock(queueGuard);
-			socketQueue.push(s_connection);
-			queueIndicator.signal();
+			this->enqueue_incoming(s_connection);
 		}
 	}
 
@@ -424,4 +312,9 @@ bool Proxy::run()
 
 	s_server.close();
 	return true;
+}
+
+void Proxy::interrupt()
+{
+	this->stop_listening = true;
 }
