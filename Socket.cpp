@@ -42,11 +42,11 @@ bool Socket::connect(SocketAddress addr)
 	return ::connect(this->socket, (const sockaddr*)&addr.saddr, sizeof(addr.saddr)) == 0;
 }
 
-int Socket::recv(char* buf, size_t max_size, bool force)
+int Socket::recv(char* buf, size_t max_size, RecvFlag flags, bool force)
 {
 	assert(buf != NULL);
 
-	int read = ::recv(this->socket, buf, max_size, 0);
+	int read = ::recv(this->socket, buf, max_size, flags);
 
 	if(force) {
 		int total = read;
@@ -77,22 +77,23 @@ size_t Socket::send(const char* buf, size_t size)
 bool Socket::select_read(long seconds, long microseconds) const
 {
 	fd_set wait;
-	FD_ZERO(&wait);
-	FD_SET(this->socket, &wait);
+	timeval time;
+	timeval* time_ptr = &time;
+	prepare_select(seconds, microseconds, &wait, &time_ptr);
 
-	const timeval* timeout = NULL; // infinite
-	timeval s_timeout;
-
-	if(seconds >= 0)
-	{
-		s_timeout.tv_sec = seconds;
-		s_timeout.tv_usec = microseconds;
-		timeout = &s_timeout;
-	}
-
-	int ret = ::select(this->socket + 1, &wait, NULL, NULL, timeout);
-
+	int ret = ::select(this->socket + 1, &wait, NULL, NULL, time_ptr);
 	return ret == 1; // 0 = timeout, < 0 = error, > 0 = amount ready
+}
+
+bool Socket::select_write(long seconds, long microseconds) const
+{
+	fd_set wait;
+	timeval time;
+	timeval* time_ptr = &time;
+	prepare_select(seconds, microseconds, &wait, &time_ptr);
+
+	int ret = ::select(this->socket + 1, NULL, &wait, NULL, time_ptr);
+	return ret == 1;
 }
 
 bool Socket::shutdown(bool receive, bool send)
@@ -115,6 +116,28 @@ bool Socket::close()
 {
 	this->shutdown(true, true);
 	return ::closesocket(this->socket) == 0;
+}
+
+void Socket::prepare_select(long seconds, long microseconds, fd_set* fd_desc, timeval** timeval_ptr) const
+{
+	assert(timeval_ptr != NULL);
+
+	FD_ZERO(fd_desc);
+	FD_SET(this->socket, fd_desc);
+
+	if(seconds >= 0)
+	{
+		assert(*timeval_ptr != NULL);
+
+		timeval& s_timeout = **timeval_ptr;
+
+		s_timeout.tv_sec = seconds;
+		s_timeout.tv_usec = microseconds;
+	}
+	else
+	{
+		*timeval_ptr = NULL; // infinite
+	}
 }
 
 bool Socket::startup()

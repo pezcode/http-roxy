@@ -72,8 +72,10 @@ class Socket
 {
 public:
 	enum Domain { INET = PF_INET, INET6 = PF_INET6 };
-	enum Type { STREAM = SOCK_STREAM, DGRAM = SOCK_DGRAM, SEQPACKET = SOCK_SEQPACKET, RAW = SOCK_RAW };
+	enum Type { STREAM = SOCK_STREAM, DGRAM = SOCK_DGRAM, RAW = SOCK_RAW, RDM = SOCK_RDM, SEQPACKET = SOCK_SEQPACKET };
 	enum Protocol { DEFAULT = 0 };
+
+	enum RecvFlag { NONE = 0, PEEK = MSG_PEEK, OOB = MSG_OOB };
 
 #ifdef _WIN32
 	typedef SOCKET socket_t;
@@ -81,8 +83,8 @@ public:
 	typedef int socket_t;
 #endif
 
-	Socket(socket_t socket) : socket(socket) { }
-	Socket(bool IPV6 = false, bool TCP = true);
+	Socket(socket_t socket = INVALID_SOCKET) : socket(socket) { }
+	Socket(bool IPV6, bool TCP);
 	Socket(Domain domain, Type type, Protocol protocol = DEFAULT);
 
 	bool bind(SocketAddress addr);
@@ -90,9 +92,10 @@ public:
 	Socket accept(SocketAddress* addr = NULL);
 	bool connect(SocketAddress addr);
 
-	int recv(char* buf, size_t max_size, bool force = false);
+	int recv(char* buf, size_t max_size, RecvFlag flags = NONE, bool force = false);
 	size_t send(const char* buf, size_t size);
 
+	// seconds < 0 -> infinite
 	bool select_read(long seconds, long microseconds = 0) const;
 	bool select_write(long seconds, long microseconds = 0) const;
 
@@ -110,6 +113,8 @@ public:
 
 private:
 	socket_t socket;
+
+	void prepare_select(long seconds, long microseconds, fd_set* fd_desc, timeval** timeval_ptr) const;
 };
 
 #endif
