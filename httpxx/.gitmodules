@@ -1,3 +1,0 @@
-[submodule "libs/http-parser"]
-	path = libs/http-parser
-	url = git://github.com/AndreLouisCaron/http-parser.git
