@@ -5,12 +5,14 @@
 #include <cassert>
 #include "Message.h"
 
-http::Request Proxy::receive_request(Socket socket)
+std::string Proxy::receive_request(http::Request& request, Socket socket)
 {
-	http::Request request;
+	std::string content;
+
+	request.clear();
 
 	if(!socket.select_read(KEEPALIVE_TIMEOUT))
-		return request;
+		return content;
 
 	// How to deal with bytes already read?
 
@@ -28,6 +30,7 @@ http::Request Proxy::receive_request(Socket socket)
 
 		size_t parsed = request.feed(buf, read);
 		socket.recv(buf, parsed); // remove from queue
+		content.append(buf, parsed);
 
 		if(parsed == 0)
 		{
@@ -35,11 +38,9 @@ http::Request Proxy::receive_request(Socket socket)
 			break;
 		}
 
-		
-
 	} while (!request.complete());
 
-	return request;
+	return content;
 
 	/*
 
@@ -59,19 +60,23 @@ http::Request Proxy::receive_request(Socket socket)
 	*/
 }
 
-bool Proxy::forward_request(const http::Request& request, Socket from, Socket to) // FIX!
+bool Proxy::forward_request(const std::string& request, Socket from, Socket to) // FIX!
 {
 	// build string from http::Request?
+
+	to.send(request.data(), request.size());
 
 	return true;
 }
 
-http::Response Proxy::receive_response(Socket socket) // FIX!
+std::string Proxy::receive_response(http::Response& response, Socket socket) // FIX!
 {
-	http::Response response;
+	std::string content;
+
+	response.clear();
 
 	if(!socket.select_read(KEEPALIVE_TIMEOUT))
-		return response;
+		return content;
 
 	// How to deal with bytes already read?
 
@@ -89,6 +94,7 @@ http::Response Proxy::receive_response(Socket socket) // FIX!
 
 		size_t parsed = response.feed(buf, read);
 		socket.recv(buf, parsed); // remove from queue
+		content.append(buf, parsed);
 
 		if(parsed == 0)
 		{
@@ -97,12 +103,14 @@ http::Response Proxy::receive_response(Socket socket) // FIX!
 		}
 	} while (!response.complete());
 
-	return response;
+	return content;
 }
 
-bool Proxy::forward_response(const http::Response& response, Socket from, Socket to) // FIX!
+bool Proxy::forward_response(const std::string& response, Socket from, Socket to) // FIX!
 {
 	// build string from http::Response?
+
+	to.send(response.data(), response.size());
 
 	return true;
 }
@@ -193,11 +201,14 @@ bool Proxy::thread_handle_connection(int tid)
 			break;
 		}
 
+		http::Request request;
+		http::Response response;
+
 		bool keep_alive = false;
 
 		do
 		{
-			http::Request request = this->receive_request(s_client);
+			std::string request_content = this->receive_request(request, s_client);
 			if(!request.complete())
 			{
 				// error
@@ -208,9 +219,14 @@ bool Proxy::thread_handle_connection(int tid)
 			{
 				string host = extract_host(request);
 				s_server = connect(host);
+				if(!s_server.valid())
+				{
+					//error
+					break;
+				}
 			}
 			
-			this->forward_request(request, s_client, s_server);
+			this->forward_request(request_content, s_client, s_server);
 
 			bool client_keepalive = (request.flags() & http::Flags::keepalive()) != 0;
 			if(!client_keepalive)
@@ -218,14 +234,14 @@ bool Proxy::thread_handle_connection(int tid)
 				s_server.shutdown(false, true); // signal EOF (we're done writing)
 			}
 
-			http::Response response = this->receive_response(s_server);
+			std::string response_content = this->receive_response(response, s_server);
 			if(!response.complete())
 			{
 				// error
 				break;
 			}
 
-			this->forward_response(response, s_server, s_client);
+			this->forward_response(response_content, s_server, s_client);
 
 			bool server_keepalive = (response.flags() & http::Flags::keepalive()) != 0;
 			keep_alive = client_keepalive && server_keepalive;
@@ -279,7 +295,7 @@ bool Proxy::listen(unsigned int max_incoming)
 	// Assign address and port to socket
 	if(!s_server.bind(server_addr))
 	{
-		Message::error() << "cannot bind to socket" << '\n';
+		Message::error() << "cannot bind to port" << '\n';
 		s_server.close();
 		return false;
 	}

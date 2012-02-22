@@ -34,10 +34,10 @@ private:
 
 	bool thread_handle_connection(int tid);
 
-	http::Request receive_request(Socket socket);
-	bool forward_request(const http::Request& request, Socket from, Socket to);
-	http::Response receive_response(Socket socket);
-	bool forward_response(const http::Response& response, Socket from, Socket to);
+	std::string receive_request(http::Request& request, Socket socket);
+	bool forward_request(const std::string& request, Socket from, Socket to);
+	std::string receive_response(http::Response& response, Socket socket);
+	bool forward_response(const std::string& response, Socket from, Socket to);
 
 	void enqueue_incoming(Socket socket);
 	Socket request_incoming();
