@@ -3,47 +3,116 @@
 #include <iostream>
 #include <string>
 #include <cassert>
-
-#include "Socket.h"
 #include "Message.h"
 
-#include "http.h"
-
-bool receiveHeader(Socket input, string& header, string& rest);
-bool forwardRequest(const string& url, SocketAddress::port_t, const string& request, Socket output);
-
-bool receiveHeader(Socket input, std::string& header, std::string& rest)
+http::Request Proxy::receive_request(Socket socket)
 {
-const std::string TERMINATOR = "\r\n\r\n";
-const size_t BUFSIZE = 2048;
-char buf[BUFSIZE];
-std::string data = "";
-bool found = false;
+	http::Request request;
 
-	while(!found)
+	if(!socket.select_read(KEEPALIVE_TIMEOUT))
+		return request;
+
+	// How to deal with bytes already read?
+
+	const size_t BUF_SIZE = 4096;
+	char buf[BUF_SIZE];
+
+	do 
 	{
-		int n_read = input.recv(buf, sizeof(buf));
-		if(n_read < 1) // error or connection closed
+		int read = socket.recv(buf, sizeof(buf), Socket::PEEK);
+		if(read < 0)
 		{
-			return false;
+			// error
+			break;
 		}
-		data += std::string(buf, n_read);
-		size_t len;
-		if((len = data.find(TERMINATOR)) != std::string::npos)
+
+		size_t parsed = request.feed(buf, read);
+		socket.recv(buf, parsed); // remove from queue
+
+		if(parsed == 0)
 		{
-			header = data.substr(0, len + TERMINATOR.length());
-			rest = data.substr(len + TERMINATOR.length(), std::string::npos);
-			found = true;
+			// error or EOF
+			break;
 		}
-	}
+
+		
+
+	} while (!request.complete());
+
+	return request;
+
+	/*
+
+		if(request.upgrade())
+		{
+			// protocol update on the same port
+			// error
+		}
+
+		const http::Method method = request.method();
+		string method_name = request.method_name();
+
+		if(method == http::Method::connect()) // SSL
+		{
+			// error? tunnel tcp?
+		}
+	*/
+}
+
+bool Proxy::forward_request(const http::Request& request, Socket from, Socket to) // FIX!
+{
+	// build string from http::Request?
+
 	return true;
 }
 
-void Proxy::enqueue_incoming(const Socket& socket)
+http::Response Proxy::receive_response(Socket socket) // FIX!
+{
+	http::Response response;
+
+	if(!socket.select_read(KEEPALIVE_TIMEOUT))
+		return response;
+
+	// How to deal with bytes already read?
+
+	const size_t BUF_SIZE = 4096;
+	char buf[BUF_SIZE];
+
+	do 
+	{
+		int read = socket.recv(buf, sizeof(buf), Socket::PEEK);
+		if(read < 0)
+		{
+			// error
+			break;
+		}
+
+		size_t parsed = response.feed(buf, read);
+		socket.recv(buf, parsed); // remove from queue
+
+		if(parsed == 0)
+		{
+			// error or EOF
+			break;
+		}
+	} while (!response.complete());
+
+	return response;
+}
+
+bool Proxy::forward_response(const http::Response& response, Socket from, Socket to) // FIX!
+{
+	// build string from http::Response?
+
+	return true;
+}
+
+void Proxy::enqueue_incoming(Socket socket)
 {
 	assert(socket.valid());
 
 	boost::unique_lock<boost::mutex> lock(this->incoming_guard);
+
 	this->incoming_connections.push(socket);
 	this->incoming_indicator.signal();
 }
@@ -77,11 +146,43 @@ void Proxy::close_unhandled_incoming()
 	}
 }
 
-bool Proxy::thread_handle_request(int tid)
+string extract_host(const http::Request& request)
+{
+	string host;
+
+	if(request.has_header("Host"))
+	{
+		host = request.header("Host");
+	}
+	else
+	{
+		host = request.url();
+	}
+
+	return host;
+}
+
+Socket connect(const string& host)
+{
+	http::Url url(host);
+	SocketAddress::port_t port = 80;
+	if(url.has_port())
+	{
+		port = atoi(url.port().c_str());
+	}
+
+	Socket socket(Socket::INET, Socket::STREAM);
+	SocketAddress addr(SocketAddress::INET, Address::fromHost(host), port);
+	socket.connect(addr);
+
+	return socket;
+}
+
+bool Proxy::thread_handle_connection(int tid)
 {
 	while(true)
 	{
-		Socket s_client;
+		Socket s_client, s_server;
 
 		try
 		{
@@ -92,146 +193,49 @@ bool Proxy::thread_handle_request(int tid)
 			break;
 		}
 
-		string header, rest;
-		if(receiveHeader(s_client, header, rest))
+		bool keep_alive = false;
+
+		do
 		{
-			size_t to_read = bodySizeFromHeader(header);
-			assert(to_read >= rest.size());
-			to_read -= rest.size();
-
-			const size_t BUFSIZE = 2048;
-			char buf[BUFSIZE];
-
-			bool error = false;
-			size_t total = 0;
-			while(total < to_read)
+			http::Request request = this->receive_request(s_client);
+			if(!request.complete())
 			{
-				int n_read = s_client.recv(buf, min(to_read-total, sizeof(buf)));
-				if(n_read < 1)
-				{
-					error = true;
-					break;
-				}
-				rest += string(buf, n_read);
-				total += n_read;
-			}
-
-			if(!error)
-			{
-				// we're done reading
-				s_client.shutdown(true, false);
-
-				string url, port;
-				if(hostFromHeader(header, url, port))
-				{
-					forwardRequest(url, atoi(port.c_str()), header + rest, s_client);
-				}
-			}
-		}
-		s_client.close();
-		Message::info() << "<thread " << tid << "> socket closed" << '\n';
-	}
-	return true;
-}
-
-bool forwardRequest(const string& url, SocketAddress::port_t port, const string& request, Socket s_output)
-{
-	assert(s_output.valid());
-
-	// resolve host IP
-	Address host_addr = Address::fromHost(url);
-	if(host_addr.isAny())
-	{
-		Message::error() << "cannot resolve " << url << '\n';
-		return false;
-	}
-
-	Socket s_request(Socket::INET, Socket::STREAM);
-	if(!s_request.valid())
-	{
-		Message::error() << "socket error" << '\n';
-		return false;
-	}
-
-	// connect to host
-	SocketAddress client_addr(SocketAddress::INET, host_addr, port);
-	if(!s_request.connect(client_addr))
-	{
-		Message::error() << "connect failed" << '\n';
-		s_request.close();
-		return false;
-	}
-
-	// send request to server
-	const size_t size = request.size();
-	if(s_request.send(request.c_str(), size) != size)
-	{
-		Message::error() << "send failed" << '\n';
-		s_request.close();
-		return false;
-	}
-
-	// we're done sending
-	s_request.shutdown(false, true);
-
-	// read incoming header
-	string header, rest;
-	if(!receiveHeader(s_request, header, rest))
-	{
-		Message::error() << "recv failed" << '\n';
-		s_request.close();
-		return false;
-	}
-
-	size_t to_read = bodySizeFromHeader(header);
-	//assert(to_read >= rest.size());
-	//to_read -= rest.size();
-
-	bool keepAlive = isConnectionAlive(header);
-
-	string mode = keepAlive ? "keep-alive" : "closed";
-
-	Message::info() << "[i] " << "receiving (mode: " << mode << ")" << '\n';
-
-	const size_t BUFSIZE = 8096;
-	char recvbuf[BUFSIZE];
-	string bufstr = header + rest;
-
-	int n_read = 0;
-
-	size_t total = 0;
-	do
-	{
-		if(s_output.send(bufstr.c_str(), bufstr.size()) != bufstr.size())
-		{
-			Message::error() << "send failed" << '\n';
-			return false;
-		}
-
-		// wait for more data to appear
-		if(s_request.select_read(keepAlive ? -1 : 3)) // ready to recv
-		{
-			n_read = s_request.recv(recvbuf, sizeof(recvbuf));
-			if(n_read == SOCKET_ERROR)			
-			{
-				Message::error() << "recv failed" << '\n';
+				// error
 				break;
 			}
-		}
-		else
-		{
-			Message::warning() << "connection timed out" << '\n';
-			break;
-		}
 
-		bufstr = string(recvbuf, n_read);
-		total += n_read;
+			if(!s_server.valid())
+			{
+				string host = extract_host(request);
+				s_server = connect(host);
+			}
+			
+			this->forward_request(request, s_client, s_server);
+
+			bool client_keepalive = (request.flags() & http::Flags::keepalive()) != 0;
+			if(!client_keepalive)
+			{
+				s_server.shutdown(false, true); // signal EOF (we're done writing)
+			}
+
+			http::Response response = this->receive_response(s_server);
+			if(!response.complete())
+			{
+				// error
+				break;
+			}
+
+			this->forward_response(response, s_server, s_client);
+
+			bool server_keepalive = (response.flags() & http::Flags::keepalive()) != 0;
+			keep_alive = client_keepalive && server_keepalive;
+		}
+		while (keep_alive);
+
+		s_server.close();
+		s_client.close();
 	}
-	while(/*total < to_read && */n_read >= 1);
 
-	Message::info() << "connection closed" << '\n';
-
-	s_request.close();
 	return true;
 }
 
@@ -306,7 +310,7 @@ bool Proxy::listen(unsigned int max_incoming)
 	boost::thread_group threads;
 	for(int i = 0; i < THREADS; i++)
 	{
-		threads.create_thread(boost::bind(&Proxy::thread_handle_request, this, i+1));
+		threads.create_thread(boost::bind(&Proxy::thread_handle_connection, this, i+1));
 	}
 
 	while(!this->stop_listening)
