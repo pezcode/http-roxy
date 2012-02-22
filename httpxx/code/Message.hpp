@@ -73,7 +73,7 @@ namespace http {
 
     private:
            // Not copyable.
-        Message ( const Message& );
+        //Message ( const Message& );
 
         /* methods. */
     public:
