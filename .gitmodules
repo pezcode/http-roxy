@@ -1,0 +1,3 @@
+[submodule "httpxx"]
+	path = httpxx
+	url = git://github.com/AndreLouisCaron/httpxx.git
