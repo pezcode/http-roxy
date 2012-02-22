@@ -50,7 +50,7 @@ namespace http {
     {
         Message& message = *static_cast<Message*>(parser->data);
         message.myComplete = true;
-        return (0);
+        return (1); //return (0);
     }
 
     int Message::on_header_field
