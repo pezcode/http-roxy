@@ -6,6 +6,7 @@
 #include <boost/thread/condition_variable.hpp>
 #include <boost/thread/mutex.hpp>
 #include <boost/thread/locks.hpp>
+#include <boost/thread/thread_time.hpp>
 
 class semaphore
 {
@@ -20,9 +21,7 @@ class semaphore
     boost::condition_variable condition;
 
 public:
-    explicit semaphore(unsigned int initial_count = 0) : count(initial_count), mutex(),  condition()
-    {
-    }
+    explicit semaphore(unsigned int initial_count = 0) : count(initial_count) { }
 
 	/*
     unsigned int get_count() const //for debugging/testing only
@@ -48,6 +47,7 @@ public:
     void wait() //called "acquire" in Java
     {
         boost::unique_lock<boost::mutex> lock(mutex);
+		// while loop, fix for spurious wakeups
         while(count == 0)
         {
              condition.wait(lock);
@@ -55,6 +55,22 @@ public:
         count--;
     }
 
+	// Returns false if timeout passed, true if signalled
+	bool wait(unsigned int timeout_ms)
+	{
+		const boost::system_time until = boost::get_system_time() + boost::posix_time::milliseconds(timeout_ms);
+
+        boost::unique_lock<boost::mutex> lock(mutex);
+        while(count == 0)
+		{
+			bool timed_out = !condition.timed_wait(lock, until);
+			if(timed_out)
+			{
+				return false;
+			}
+        }
+        count--;
+	}
 };
 
 #endif
