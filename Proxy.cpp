@@ -5,154 +5,7 @@
 #include <cassert>
 #include "Message.h"
 
-std::string Proxy::receive_request(http::Request& request, Socket socket)
-{
-	std::string content;
-
-	request.clear();
-
-	if(!socket.select_read(KEEPALIVE_TIMEOUT))
-		return content;
-
-	// How to deal with bytes already read?
-
-	const size_t BUF_SIZE = 4096;
-	char buf[BUF_SIZE];
-
-	do 
-	{
-		int read = socket.recv(buf, sizeof(buf), Socket::PEEK);
-		if(read < 0)
-		{
-			// error
-			break;
-		}
-
-		size_t parsed = request.feed(buf, read);
-		socket.recv(buf, parsed); // remove from queue
-		content.append(buf, parsed);
-
-		if(parsed == 0)
-		{
-			// error or EOF
-			break;
-		}
-
-	} while (!request.complete());
-
-	return content;
-
-	/*
-
-		if(request.upgrade())
-		{
-			// protocol update on the same port
-			// error
-		}
-
-		const http::Method method = request.method();
-		string method_name = request.method_name();
-
-		if(method == http::Method::connect()) // SSL
-		{
-			// error? tunnel tcp?
-		}
-	*/
-}
-
-bool Proxy::forward_request(const std::string& request, Socket from, Socket to) // FIX!
-{
-	// build string from http::Request?
-
-	to.send(request.data(), request.size());
-
-	return true;
-}
-
-std::string Proxy::receive_response(http::Response& response, Socket socket) // FIX!
-{
-	std::string content;
-
-	response.clear();
-
-	if(!socket.select_read(KEEPALIVE_TIMEOUT))
-		return content;
-
-	// How to deal with bytes already read?
-
-	const size_t BUF_SIZE = 4096;
-	char buf[BUF_SIZE];
-
-	do 
-	{
-		int read = socket.recv(buf, sizeof(buf), Socket::PEEK);
-		if(read < 0)
-		{
-			// error
-			break;
-		}
-
-		size_t parsed = response.feed(buf, read);
-		socket.recv(buf, parsed); // remove from queue
-		content.append(buf, parsed);
-
-		if(parsed == 0)
-		{
-			// error or EOF
-			break;
-		}
-	} while (!response.complete());
-
-	return content;
-}
-
-bool Proxy::forward_response(const std::string& response, Socket from, Socket to) // FIX!
-{
-	// build string from http::Response?
-
-	to.send(response.data(), response.size());
-
-	return true;
-}
-
-void Proxy::enqueue_incoming(Socket socket)
-{
-	assert(socket.valid());
-
-	boost::unique_lock<boost::mutex> lock(this->incoming_guard);
-
-	this->incoming_connections.push(socket);
-	this->incoming_indicator.signal();
-}
-
-Socket Proxy::request_incoming()
-{
-	// wait for a semaphore counter > 0 and automatically decrease the counter
-	this->incoming_indicator.wait();
-
-	boost::unique_lock<boost::mutex> lock(this->incoming_guard);
-
-	assert(!this->incoming_connections.empty());
-
-	Socket incoming = this->incoming_connections.front();
-	this->incoming_connections.pop();
-
-	assert(incoming.valid());
-
-	return incoming;
-}
-
-void Proxy::close_unhandled_incoming()
-{
-	boost::unique_lock<boost::mutex> lock(this->incoming_guard);
-
-	while(!this->incoming_connections.empty())
-	{
-		Socket socket = this->incoming_connections.front();
-		this->incoming_connections.pop();
-		socket.close();
-	}
-}
+// LOL
 
 string extract_host(const http::Request& request)
 {
@@ -186,74 +39,7 @@ Socket connect(const string& host)
 	return socket;
 }
 
-bool Proxy::thread_handle_connection(int tid)
-{
-	while(true)
-	{
-		Socket s_client, s_server;
-
-		try
-		{
-			s_client = this->request_incoming();
-		}
-		catch(boost::thread_interrupted)
-		{
-			break;
-		}
-
-		http::Request request;
-		http::Response response;
-
-		bool keep_alive = false;
-
-		do
-		{
-			std::string request_content = this->receive_request(request, s_client);
-			if(!request.complete())
-			{
-				// error
-				break;
-			}
-
-			if(!s_server.valid())
-			{
-				string host = extract_host(request);
-				s_server = connect(host);
-				if(!s_server.valid())
-				{
-					//error
-					break;
-				}
-			}
-			
-			this->forward_request(request_content, s_client, s_server);
-
-			bool client_keepalive = (request.flags() & http::Flags::keepalive()) != 0;
-			if(!client_keepalive)
-			{
-				s_server.shutdown(false, true); // signal EOF (we're done writing)
-			}
-
-			std::string response_content = this->receive_response(response, s_server);
-			if(!response.complete())
-			{
-				// error
-				break;
-			}
-
-			this->forward_response(response_content, s_server, s_client);
-
-			bool server_keepalive = (response.flags() & http::Flags::keepalive()) != 0;
-			keep_alive = client_keepalive && server_keepalive;
-		}
-		while (keep_alive);
-
-		s_server.close();
-		s_client.close();
-	}
-
-	return true;
-}
+// ---
 
 Proxy::Proxy(SocketAddress::port_t port)
 {
@@ -351,4 +137,252 @@ bool Proxy::listen(unsigned int max_incoming)
 void Proxy::interrupt()
 {
 	this->stop_listening = true;
+}
+
+#include <fstream>
+
+bool Proxy::thread_handle_connection(int tid)
+{
+	while(true)
+	{
+		Socket s_client, s_server;
+
+		try
+		{
+			s_client = this->request_incoming();
+		}
+		catch(boost::thread_interrupted)
+		{
+			break;
+		}
+
+		http::BufferedRequest request;
+		http::BufferedResponse response;
+
+		bool keep_alive = false;
+
+		do
+		{
+			std::string request_header = this->receive_message_header(request, s_client);
+			if(!request.headers_complete())
+			{
+				Message::error() << "Invalid request header" << '\n';
+				std::ofstream file("invalid_request.txt");
+				file << request_header << std::endl;
+				break;
+			}
+
+			if(!s_server.valid())
+			{
+				string host = extract_host(request);
+				s_server = connect(host);
+				if(!s_server.valid())
+				{
+					Message::error() << "Can't connect to host " << host << '\n';
+					break;
+				}
+			}
+			
+			if(!this->forward_message(request_header, request, s_client, s_server))
+			{
+				Message::error() << "Forwarding request failed" << '\n';
+				break;
+			}
+
+			bool client_keepalive = (request.flags() & http::Flags::keepalive()) != 0;
+			if(!client_keepalive)
+			{
+				s_server.shutdown(false, true); // signal EOF (we're done writing)
+			}
+
+			std::string response_header = this->receive_message_header(response, s_server);
+			if(!response.headers_complete())
+			{
+				Message::error() << "Invalid response header" << '\n';
+				std::ofstream file("invalid_response.txt");
+				file << request_header << std::endl;
+				break;
+			}
+
+			if(!this->forward_message(response_header, response, s_server, s_client))
+			{
+				Message::error() << "Forwarding response failed" << '\n';
+				break;
+			}
+
+			bool server_keepalive = (response.flags() & http::Flags::keepalive()) != 0;
+			keep_alive = client_keepalive && server_keepalive;
+		}
+		while (keep_alive);
+
+		s_server.close();
+		s_client.close();
+	}
+
+	return true;
+}
+
+std::string Proxy::receive_message_header(http::Message& message, Socket socket) const
+{
+	assert(socket.valid());
+
+	std::string content;
+
+	message.clear();
+
+	if(!socket.select_read(KEEPALIVE_TIMEOUT))
+	{
+		Message::error() << "select failed" << '\n';
+		return content;
+	}
+
+	const size_t BUF_SIZE = 4096;
+	char buf[BUF_SIZE];
+
+	do 
+	{
+		int read = socket.recv(buf, sizeof(buf), Socket::PEEK);
+		if(read < 0)
+		{
+			Message::error() << "recv < 0" << '\n';
+			break;
+		}
+
+		size_t parsed = 0;
+
+		try
+		{
+			parsed = message.feed(buf, read);
+		}
+		catch (const http::Error& e)
+		{
+			Message::error() << e.what() << '\n';
+			break;
+		}
+
+		if(parsed == 0)
+		{
+			// EOF (read is 0)
+			Message::warning() << "eof" << '\n';
+			break;
+		}
+
+		socket.recv(buf, parsed); // remove from queue
+		content.append(buf, parsed);
+	}
+	while(!message.headers_complete());
+
+	return content;
+
+	/*
+
+		if(request.upgrade())
+		{
+			// protocol update on the same port
+			// error
+		}
+
+		const http::Method method = request.method();
+		string method_name = request.method_name();
+
+		if(method == http::Method::connect()) // SSL
+		{
+			// error? tunnel tcp?
+		}
+	*/
+}
+
+bool Proxy::forward_message(const std::string& header, http::Message& message, Socket from, Socket to) const
+{
+	assert(header.length() > 0);
+	assert(message.headers_complete());
+	assert(from.valid());
+	assert(to.valid());
+
+	if(to.send(header.data(), header.size()) != header.size())
+	{
+		return false;
+	}
+
+	const size_t BUF_SIZE = 4096;
+	char buf[BUF_SIZE];
+
+	while(!message.complete())
+	{
+		int read = from.recv(buf, sizeof(buf), Socket::PEEK);
+		if(read < 0)
+		{
+			Message::error() << "recv < 0" << '\n';
+			break;
+		}
+
+		size_t parsed = 0;
+
+		try
+		{
+			parsed = message.feed(buf, read);
+		}
+		catch(const http::Error& e)
+		{
+			Message::error() << e.what() << '\n';
+			break;
+		}
+
+		if(parsed < read && message.complete())
+		{
+			Message::error() << "read too much" << '\n';
+			break;
+		}
+
+		if(parsed == 0)
+		{
+			// EOF (read is 0)
+			Message::warning() << "eof" << '\n';
+			break;
+		}
+
+		from.recv(buf, parsed);
+		to.send(buf, parsed);
+	}
+
+	return message.complete();
+}
+
+void Proxy::enqueue_incoming(Socket socket)
+{
+	assert(socket.valid());
+
+	boost::unique_lock<boost::mutex> lock(this->incoming_guard);
+
+	this->incoming_connections.push(socket);
+	this->incoming_indicator.signal();
+}
+
+Socket Proxy::request_incoming()
+{
+	// wait for a semaphore counter > 0 and automatically decrease the counter
+	this->incoming_indicator.wait();
+
+	boost::unique_lock<boost::mutex> lock(this->incoming_guard);
+
+	assert(!this->incoming_connections.empty());
+
+	Socket incoming = this->incoming_connections.front();
+	this->incoming_connections.pop();
+
+	assert(incoming.valid());
+
+	return incoming;
+}
+
+void Proxy::close_unhandled_incoming()
+{
+	boost::unique_lock<boost::mutex> lock(this->incoming_guard);
+
+	while(!this->incoming_connections.empty())
+	{
+		Socket socket = this->incoming_connections.front();
+		this->incoming_connections.pop();
+		socket.close();
+	}
 }

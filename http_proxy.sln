@@ -3,6 +3,7 @@ Microsoft Visual Studio Solution File, Format Version 11.00
 # Visual Studio 2010
 Project("{8BC9CEB8-8B4A-11D0-8D11-00A0C91BC942}") = "http_proxy", "http_proxy.vcxproj", "{62865CCC-E91E-44C8-897C-9826012168BC}"
 	ProjectSection(ProjectDependencies) = postProject
+		{723D151E-373E-4BB2-B735-2BB5C53EC4C3} = {723D151E-373E-4BB2-B735-2BB5C53EC4C3}
 		{0C0C173B-B7E3-4C86-AC6D-427C66A88ACB} = {0C0C173B-B7E3-4C86-AC6D-427C66A88ACB}
 	EndProjectSection
 EndProject

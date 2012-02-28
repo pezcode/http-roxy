@@ -17,12 +17,12 @@ public:
 	Proxy(SocketAddress::port_t port);
 
 	// our server listening for connection attempts
-	bool listen(unsigned int max_incoming = 5);
+	bool listen(unsigned int max_incoming = 4);
 	void interrupt();
 
 private:
 
-	static const unsigned int THREADS = 1U;
+	static const unsigned int THREADS = 4U;
 	static const unsigned int KEEPALIVE_TIMEOUT = 5U; // seconds
 
 	SocketAddress::port_t port;
@@ -34,10 +34,8 @@ private:
 
 	bool thread_handle_connection(int tid);
 
-	std::string receive_request(http::Request& request, Socket socket);
-	bool forward_request(const std::string& request, Socket from, Socket to);
-	std::string receive_response(http::Response& response, Socket socket);
-	bool forward_response(const std::string& response, Socket from, Socket to);
+	std::string receive_message_header(http::Message& message, Socket socket) const;
+	bool forward_message(const std::string& header, http::Message& message, Socket from, Socket to) const;
 
 	void enqueue_incoming(Socket socket);
 	Socket request_incoming();

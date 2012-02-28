@@ -37,7 +37,18 @@
     <Import Project="$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props" Condition="exists('$(UserRootDir)\Microsoft.Cpp.$(Platform).user.props')" Label="LocalAppDataPlatform" />
   </ImportGroup>
   <PropertyGroup Label="UserMacros" />
-  <PropertyGroup />
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <OutDir>$(Configuration)\</OutDir>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
+    <IntDir>$(Configuration)\$(ProjectName)\</IntDir>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <OutDir>$(Configuration)\</OutDir>
+  </PropertyGroup>
+  <PropertyGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
+    <IntDir>$(Configuration)\$(ProjectName)\</IntDir>
+  </PropertyGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Debug|Win32'">
     <ClCompile>
       <PrecompiledHeader>
@@ -52,7 +63,7 @@
       <GenerateDebugInformation>true</GenerateDebugInformation>
     </Link>
     <Lib>
-      <AdditionalDependencies>$(OutDir)\http-parser.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>$(OutDir)http-parser.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Lib>
   </ItemDefinitionGroup>
   <ItemDefinitionGroup Condition="'$(Configuration)|$(Platform)'=='Release|Win32'">
@@ -73,11 +84,23 @@
       <OptimizeReferences>true</OptimizeReferences>
     </Link>
     <Lib>
-      <AdditionalDependencies>$(OutDir)\http-parser.lib;%(AdditionalDependencies)</AdditionalDependencies>
+      <AdditionalDependencies>$(OutDir)http-parser.lib;%(AdditionalDependencies)</AdditionalDependencies>
     </Lib>
   </ItemDefinitionGroup>
   <ItemGroup>
     <None Include="ReadMe.txt" />
+  </ItemGroup>
+  <ItemGroup>
+    <ClInclude Include="httpxx\code\BufferedMessage.hpp" />
+    <ClInclude Include="httpxx\code\Error.hpp" />
+    <ClInclude Include="httpxx\code\Flags.hpp" />
+    <ClInclude Include="httpxx\code\http.hpp" />
+    <ClInclude Include="httpxx\code\icompare.hpp" />
+    <ClInclude Include="httpxx\code\Message.hpp" />
+    <ClInclude Include="httpxx\code\Method.hpp" />
+    <ClInclude Include="httpxx\code\Request.hpp" />
+    <ClInclude Include="httpxx\code\Response.hpp" />
+    <ClInclude Include="httpxx\code\Url.hpp" />
   </ItemGroup>
   <ItemGroup>
     <ClCompile Include="httpxx\code\Error.cpp" />
@@ -88,17 +111,6 @@
     <ClCompile Include="httpxx\code\Request.cpp" />
     <ClCompile Include="httpxx\code\Response.cpp" />
     <ClCompile Include="httpxx\code\Url.cpp" />
-  </ItemGroup>
-  <ItemGroup>
-    <ClInclude Include="httpxx\code\Error.hpp" />
-    <ClInclude Include="httpxx\code\Flags.hpp" />
-    <ClInclude Include="httpxx\code\http.hpp" />
-    <ClInclude Include="httpxx\code\icompare.hpp" />
-    <ClInclude Include="httpxx\code\Message.hpp" />
-    <ClInclude Include="httpxx\code\Method.hpp" />
-    <ClInclude Include="httpxx\code\Request.hpp" />
-    <ClInclude Include="httpxx\code\Response.hpp" />
-    <ClInclude Include="httpxx\code\Url.hpp" />
   </ItemGroup>
   <Import Project="$(VCTargetsPath)\Microsoft.Cpp.targets" />
   <ImportGroup Label="ExtensionTargets">
