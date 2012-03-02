@@ -22,7 +22,6 @@ public:
 
 private:
 
-	static const unsigned int THREADS = 4U;
 	static const unsigned int KEEPALIVE_TIMEOUT = 5U; // seconds
 
 	SocketAddress::port_t port;
@@ -34,8 +33,11 @@ private:
 
 	bool thread_handle_connection(int tid);
 
-	std::string receive_message_header(http::Message& message, Socket socket) const;
-	bool forward_message(const std::string& header, http::Message& message, Socket from, Socket to) const;
+	static std::string extract_host(const http::Request& request);
+	static Socket connect(string host);
+
+	static std::string receive_message_header(http::Message& message, Socket socket);
+	static bool forward_message(const std::string& header, http::Message& message, Socket from, Socket to);
 
 	void enqueue_incoming(Socket socket);
 	Socket request_incoming();

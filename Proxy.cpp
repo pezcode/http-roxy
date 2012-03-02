@@ -5,42 +5,6 @@
 #include <cassert>
 #include "Message.h"
 
-// LOL
-
-string extract_host(const http::Request& request)
-{
-	string host;
-
-	if(request.has_header("Host"))
-	{
-		host = request.header("Host");
-	}
-	else
-	{
-		host = request.url();
-	}
-
-	return host;
-}
-
-Socket connect(const string& host)
-{
-	http::Url url(host);
-	SocketAddress::port_t port = 80;
-	if(url.has_port())
-	{
-		port = atoi(url.port().c_str());
-	}
-
-	Socket socket(Socket::INET, Socket::STREAM);
-	SocketAddress addr(SocketAddress::INET, Address::fromHost(host), port);
-	socket.connect(addr);
-
-	return socket;
-}
-
-// ---
-
 Proxy::Proxy(SocketAddress::port_t port)
 {
 	this->port = port;
@@ -56,25 +20,6 @@ bool Proxy::listen(unsigned int max_incoming)
 		Message::error() << "invalid socket" << '\n';
 		return false;
 	}
-
-	/*
-	// load up address structs with getaddrinfo():
-	addrinfo hints = { 0 };
-	hints.ai_family = AF_INET;
-	hints.ai_socktype = SOCK_STREAM;
-	hints.ai_flags = AI_PASSIVE; // fill in my ip
-	
-	// get local ip
-	addrinfo* res;
-	char buf[14];
-	getaddrinfo(NULL, _itoa(port, buf, 10), &hints, &res);
-	
-	sockaddr_in serverAddr = { 0 };
-	
-	assert(res->ai_addrlen >= sizeof(serverAddr));
-
-	serverAddr = *(sockaddr_in*)res->ai_addr;
-	*/
 
 	SocketAddress server_addr(SocketAddress::INET, Address() /*INADDR_ANY*/, this->port);
 
@@ -110,7 +55,7 @@ bool Proxy::listen(unsigned int max_incoming)
 	std::cout << "CTRL+C to exit" << '\n' << '\n';
 
 	boost::thread_group threads;
-	for(int i = 0; i < THREADS; i++)
+	for(int i = 0; i < max_incoming; i++)
 	{
 		threads.create_thread(boost::bind(&Proxy::thread_handle_connection, this, i+1));
 	}
@@ -139,8 +84,6 @@ void Proxy::interrupt()
 	this->stop_listening = true;
 }
 
-#include <fstream>
-
 bool Proxy::thread_handle_connection(int tid)
 {
 	while(true)
@@ -156,8 +99,8 @@ bool Proxy::thread_handle_connection(int tid)
 			break;
 		}
 
-		http::BufferedRequest request;
-		http::BufferedResponse response;
+		http::Request request;
+		http::Response response;
 
 		bool keep_alive = false;
 
@@ -167,8 +110,8 @@ bool Proxy::thread_handle_connection(int tid)
 			if(!request.headers_complete())
 			{
 				Message::error() << "Invalid request header" << '\n';
-				std::ofstream file("invalid_request.txt");
-				file << request_header << std::endl;
+				//std::ofstream file("invalid_request.txt");
+				//file << request_header << std::endl;
 				break;
 			}
 
@@ -189,6 +132,18 @@ bool Proxy::thread_handle_connection(int tid)
 				break;
 			}
 
+			if(request.upgrade())
+			{
+				// protocol update on the same port
+				// ???
+			}
+
+			if(request.method() == http::Method::connect())
+			{
+				// connection on another port
+				// ???
+			}
+
 			bool client_keepalive = (request.flags() & http::Flags::keepalive()) != 0;
 			if(!client_keepalive)
 			{
@@ -199,15 +154,18 @@ bool Proxy::thread_handle_connection(int tid)
 			if(!response.headers_complete())
 			{
 				Message::error() << "Invalid response header" << '\n';
-				std::ofstream file("invalid_response.txt");
-				file << request_header << std::endl;
+				//std::ofstream file("invalid_response.txt");
+				//file << request_header << std::endl;
 				break;
 			}
 
-			if(!this->forward_message(response_header, response, s_server, s_client))
+			if(request.method() != http::Method::head()) //if(!(request.flags() & http::Flags::skipbody()))
 			{
-				Message::error() << "Forwarding response failed" << '\n';
-				break;
+				if(!this->forward_message(response_header, response, s_server, s_client))
+				{
+					Message::error() << "Forwarding response failed" << '\n';
+					break;
+				}
 			}
 
 			bool server_keepalive = (response.flags() & http::Flags::keepalive()) != 0;
@@ -222,7 +180,51 @@ bool Proxy::thread_handle_connection(int tid)
 	return true;
 }
 
-std::string Proxy::receive_message_header(http::Message& message, Socket socket) const
+std::string Proxy::extract_host(const http::Request& request)
+{
+	string host;
+
+	if(request.has_header("Host"))
+	{
+		host = request.header("Host");
+	}
+	else
+	{
+		host = request.url();
+	}
+
+	return host;
+}
+
+Socket Proxy::connect(string host)
+{
+	Socket socket;
+
+	http::Url url(host);
+	//if(url.has_host()) // somehow this doesn't work for URLs without schema
+	{
+		SocketAddress::port_t port = 80;
+		if(url.has_port())
+		{
+			port = atoi(url.port().c_str());
+		}
+
+		Address addr = Address::fromHost(host);
+		if(!addr.isAny())
+		{
+			socket = Socket(Socket::INET, Socket::STREAM);
+			SocketAddress sock_addr(SocketAddress::INET, addr, port);
+			if(!socket.connect(sock_addr))
+			{
+				socket.close();
+			}
+		}
+	}
+
+	return socket;
+}
+
+std::string Proxy::receive_message_header(http::Message& message, Socket socket)
 {
 	assert(socket.valid());
 
@@ -273,26 +275,9 @@ std::string Proxy::receive_message_header(http::Message& message, Socket socket)
 	while(!message.headers_complete());
 
 	return content;
-
-	/*
-
-		if(request.upgrade())
-		{
-			// protocol update on the same port
-			// error
-		}
-
-		const http::Method method = request.method();
-		string method_name = request.method_name();
-
-		if(method == http::Method::connect()) // SSL
-		{
-			// error? tunnel tcp?
-		}
-	*/
 }
 
-bool Proxy::forward_message(const std::string& header, http::Message& message, Socket from, Socket to) const
+bool Proxy::forward_message(const std::string& header, http::Message& message, Socket from, Socket to)
 {
 	assert(header.length() > 0);
 	assert(message.headers_complete());
