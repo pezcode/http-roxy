@@ -2,11 +2,6 @@
 
 #include <cassert>
 
-Socket::Socket(bool IPV6, bool TCP)
-{
-	this->socket = ::socket((IPV6 ? PF_INET6 : PF_INET), (TCP ? SOCK_STREAM : SOCK_DGRAM), 0);
-}
-
 Socket::Socket(Domain domain, Type type, Protocol protocol)
 {
 	this->socket = ::socket(domain, type, protocol);
@@ -79,7 +74,7 @@ bool Socket::select_read(long seconds, long microseconds) const
 	fd_set wait;
 	timeval time;
 	timeval* time_ptr = &time;
-	prepare_select(seconds, microseconds, &wait, &time_ptr);
+	this->prepare_select(seconds, microseconds, &wait, &time_ptr);
 
 	int ret = ::select(this->socket + 1, &wait, NULL, NULL, time_ptr);
 	return ret == 1; // 0 = timeout, < 0 = error, > 0 = amount ready
@@ -90,10 +85,15 @@ bool Socket::select_write(long seconds, long microseconds) const
 	fd_set wait;
 	timeval time;
 	timeval* time_ptr = &time;
-	prepare_select(seconds, microseconds, &wait, &time_ptr);
+	this->prepare_select(seconds, microseconds, &wait, &time_ptr);
 
 	int ret = ::select(this->socket + 1, NULL, &wait, NULL, time_ptr);
 	return ret == 1;
+}
+
+bool Socket::shutdown(int how)
+{
+	return ::shutdown(this->socket, how) == 0;
 }
 
 bool Socket::shutdown(bool receive, bool send)
@@ -109,13 +109,18 @@ bool Socket::shutdown(bool receive, bool send)
 		how = 2;
 	}
 
-	return ::shutdown(this->socket, how) == 0;
+	return this->shutdown(how);
 }
 
 bool Socket::close()
 {
 	this->shutdown(true, true);
-	return ::closesocket(this->socket) == 0;
+	bool success = ::closesocket(this->socket) == 0;
+	if(success)
+	{
+		this->socket = INVALID_SOCKET;
+	}
+	return success;
 }
 
 void Socket::prepare_select(long seconds, long microseconds, fd_set* fd_desc, timeval** timeval_ptr) const
@@ -222,6 +227,25 @@ string Address::toPresentation() const
 {
 	return inet_ntoa(this->a.addr4);
 }
+
+/*
+// load up address structs with getaddrinfo():
+addrinfo hints = { 0 };
+hints.ai_family = AF_INET;
+hints.ai_socktype = SOCK_STREAM;
+hints.ai_flags = AI_PASSIVE; // fill in my ip
+	
+// get local ip
+addrinfo* res;
+char buf[14];
+getaddrinfo(NULL, _itoa(port, buf, 10), &hints, &res);
+	
+sockaddr_in serverAddr = { 0 };
+	
+assert(res->ai_addrlen >= sizeof(serverAddr));
+
+serverAddr = *(sockaddr_in*)res->ai_addr;
+*/
 
 SocketAddress::SocketAddress(Family family, Address address, port_t port)
 {

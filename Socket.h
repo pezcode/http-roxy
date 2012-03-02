@@ -84,7 +84,6 @@ public:
 #endif
 
 	Socket(socket_t socket = INVALID_SOCKET) : socket(socket) { }
-	Socket(bool IPV6, bool TCP);
 	Socket(Domain domain, Type type, Protocol protocol = DEFAULT);
 
 	bool bind(SocketAddress addr);
@@ -99,6 +98,7 @@ public:
 	bool select_read(long seconds, long microseconds = 0) const;
 	bool select_write(long seconds, long microseconds = 0) const;
 
+	bool shutdown(int how);
 	bool shutdown(bool read = true, bool write = true);
 	bool close();
 
