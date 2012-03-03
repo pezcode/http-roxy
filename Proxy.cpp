@@ -1,13 +1,16 @@
 #include "Proxy.h"
 
 #include <iostream>
+#include <sstream>
 #include <string>
+#include <algorithm>
 #include <cassert>
 #include "Message.h"
 
-Proxy::Proxy(SocketAddress::port_t port)
+Proxy::Proxy(SocketAddress::port_t port, const std::vector<Authentication>& auth)
 {
 	this->port = port;
+	this->auth = auth;
 	this->stop_listening = false;
 }
 
@@ -40,8 +43,8 @@ bool Proxy::listen(unsigned int max_incoming)
 	}
 
 	// Get local IP
-	string hostIP = "localhost";
-	string hostName = Address::getHostName();
+	std::string hostIP = "localhost";
+	std::string hostName = Address::getHostName();
 	if(!hostName.empty())
 	{
 		Address host_addr = Address::fromHost(hostName);
@@ -115,9 +118,31 @@ bool Proxy::thread_handle_connection(int tid)
 				break;
 			}
 
+			if(!this->check_authorization(request))
+			{
+				this->send_invalid_authorization_response(request, s_client);
+				break;
+			}
+
+			if(request.upgrade())
+			{
+				// protocol upgrade requested
+				// check if we support the protocol? HTTP/1.0 -> HTTP/1.1
+				// send an appropiate response header?
+				break;
+			}
+
+			if(request.method() == http::Method::connect())
+			{
+				// raw TCP connection requested
+				// how do we tunnel the raw bytes? select?
+				// send an appropiate response header?
+				break;
+			}
+
 			if(!s_server.valid())
 			{
-				string host = extract_host(request);
+				std::string host = extract_host(request);
 				s_server = connect(host);
 				if(!s_server.valid())
 				{
@@ -132,20 +157,7 @@ bool Proxy::thread_handle_connection(int tid)
 				break;
 			}
 
-			if(request.upgrade())
-			{
-				// protocol update on the same port
-				// ???
-			}
-
-			if(request.method() == http::Method::connect())
-			{
-				// connection on another port
-				// ???
-			}
-
-			bool client_keepalive = (request.flags() & http::Flags::keepalive()) != 0;
-			if(!client_keepalive)
+			if(!request.should_keep_alive())
 			{
 				s_server.shutdown(false, true); // signal EOF (we're done writing)
 			}
@@ -168,10 +180,9 @@ bool Proxy::thread_handle_connection(int tid)
 				}
 			}
 
-			bool server_keepalive = (response.flags() & http::Flags::keepalive()) != 0;
-			keep_alive = client_keepalive && server_keepalive;
+			keep_alive = request.should_keep_alive() && response.should_keep_alive();
 		}
-		while (keep_alive);
+		while(keep_alive);
 
 		s_server.close();
 		s_client.close();
@@ -182,7 +193,7 @@ bool Proxy::thread_handle_connection(int tid)
 
 std::string Proxy::extract_host(const http::Request& request)
 {
-	string host;
+	std::string host;
 
 	if(request.has_header("Host"))
 	{
@@ -196,7 +207,7 @@ std::string Proxy::extract_host(const http::Request& request)
 	return host;
 }
 
-Socket Proxy::connect(string host)
+Socket Proxy::connect(const std::string& host)
 {
 	Socket socket;
 
@@ -331,6 +342,32 @@ bool Proxy::forward_message(const std::string& header, http::Message& message, S
 	}
 
 	return message.complete();
+}
+
+bool Proxy::check_authorization(const http::Request& request) const
+{
+	if(this->auth.empty())
+		return true;
+
+	if(request.has_header("Proxy-Authorization"))
+	{
+		std::string auth_str = request.header("Proxy-Authorization");
+		Authentication auth_val(auth_str);
+		if(this->auth.end() != std::find(this->auth.begin(), this->auth.end(), auth_val))
+		{
+			return true;
+		}
+	}
+
+	return false;
+}
+
+bool Proxy::send_invalid_authorization_response(const http::Request& request, Socket socket)
+{
+	std::ostringstream http_ver;
+	http_ver << "HTTP/" << request.major_version() << '.' << request.minor_version();
+	const std::string response = http_ver.str() + " 407 Proxy Authentication Required\r\nProxy-Authenticate: Basic\r\n\r\n";
+	return(socket.send(response.data(), response.size()) == response.size());
 }
 
 void Proxy::enqueue_incoming(Socket socket)

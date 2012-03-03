@@ -82,12 +82,16 @@
     </Link>
   </ItemDefinitionGroup>
   <ItemGroup>
+    <ClCompile Include="Authentication.cpp" />
+    <ClCompile Include="base64.cpp" />
     <ClCompile Include="main.cpp" />
     <ClCompile Include="Message.cpp" />
     <ClCompile Include="Proxy.cpp" />
     <ClCompile Include="Socket.cpp" />
   </ItemGroup>
   <ItemGroup>
+    <ClInclude Include="Authentication.h" />
+    <ClInclude Include="base64.h" />
     <ClInclude Include="http.h" />
     <ClInclude Include="Message.h" />
     <ClInclude Include="Proxy.h" />

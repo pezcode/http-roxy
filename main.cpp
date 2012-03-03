@@ -20,7 +20,10 @@ int main(int argc, char* argv[])
 		return EXIT_FAILURE;
 	}
 
-	Proxy proxy(PROXY_PORT);
+	std::vector<Authentication> auth;
+	auth.push_back(Authentication("test-user", "test-password"));
+
+	Proxy proxy(PROXY_PORT, auth);
 
 	if(!proxy.listen())
 	{
