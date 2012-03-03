@@ -190,11 +190,11 @@ Address::operator in6_addr() const
 	return this->a.addr6;
 }
 
-string Address::getHostName()
+std::string Address::getHostName()
 {
 const size_t MAX_HOSTNAME = 255;
 char localHostName[MAX_HOSTNAME];
-string out;
+std::string out;
 
 	if(gethostname(localHostName, sizeof(localHostName)) == 0)
 	{
@@ -204,7 +204,7 @@ string out;
 }
 
 //IPv4 only :s
-Address Address::fromHost(string host)
+Address Address::fromHost(const std::string& host)
 {
 Address out;
 
@@ -218,12 +218,12 @@ Address out;
 	return out;
 }
 
-Address Address::fromPresentation(string presentation)
+Address Address::fromPresentation(const std::string& presentation)
 {
 	return Address();
 }
 
-string Address::toPresentation() const
+std::string Address::toPresentation() const
 {
 	return inet_ntoa(this->a.addr4);
 }

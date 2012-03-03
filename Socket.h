@@ -16,8 +16,6 @@
 #include <string>
 #include <cstdint>
 
-using std::string;
-
 class Address
 {
 friend class SocketAddress;
@@ -27,11 +25,11 @@ public:
 	Address(in_addr  addr4);
 	Address(in6_addr addr6);
 
-	static string getHostName();
-	static Address fromHost(string host);
-	static Address fromPresentation(string presentation);
+	static std::string getHostName();
+	static Address fromHost(const std::string& host);
+	static Address fromPresentation(const std::string& presentation);
 
-	string toPresentation() const;
+	std::string toPresentation() const;
 
 	bool isAny() const { return this->a.addr4.s_addr == INADDR_ANY; }
 
